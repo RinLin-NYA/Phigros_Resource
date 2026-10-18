@@ -63,10 +63,11 @@ jobs:
         if: steps.check.outputs.updated == 'true'
         run: echo "${{ steps.resolve.outputs.md5 }}  phigros.apk" | md5sum -c -
 
-      - name: Extract game information
+      - name: Extract game information and resources
         if: steps.check.outputs.updated == 'true'
         run: |
           python gameInformation.py phigros.apk
+          python resource.py phigros.apk
           rm -f phigros.apk
 
       - name: Publish to info branch
@@ -85,3 +86,28 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "${{ steps.check.outputs.version }}"
           git push origin info
+
+      - name: Publish resource branches
+        if: steps.check.outputs.updated == 'true'
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for branch in avatar illustration illustrationLowRes illustrationBlur; do
+            if git ls-remote --exit-code --heads origin "$branch" > /dev/null 2>&1; then
+              git fetch origin "$branch"
+              git worktree add -B "$branch" "out_$branch" "origin/$branch"
+            else
+              git worktree add --detach "out_$branch" HEAD
+              git -C "out_$branch" checkout --orphan "$branch"
+            fi
+            git -C "out_$branch" rm -rfq --ignore-unmatch .
+            cp -r "$branch/." "out_$branch/"
+            git -C "out_$branch" add -A
+            if git -C "out_$branch" diff --cached --quiet; then
+              echo "$branch 内容无变化，跳过提交"
+            else
+              git -C "out_$branch" commit -qm "${{ steps.check.outputs.version }}"
+              git -C "out_$branch" push origin "$branch"
+            fi
+          done
