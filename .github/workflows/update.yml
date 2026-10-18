@@ -2,9 +2,12 @@ name: Update game data
 
 on:
   schedule:
-    # GitHub Actions 使用 UTC: 北京时间 09:13 / 17:47
-    - cron: '13 1 * * *'
-    - cron: '47 9 * * *'
+    # GitHub Actions 使用 UTC: 北京时间 09:05 / 13:05 / 17:05 / 22:05
+    # (鸽游常见发版时段 + 5 分钟余量避开 Actions 整点繁忙期)
+    - cron: '5 1 * * *'
+    - cron: '5 5 * * *'
+    - cron: '5 9 * * *'
+    - cron: '5 14 * * *'
   workflow_dispatch:
     inputs:
       force:
@@ -48,7 +51,11 @@ jobs:
 
       - name: Install dependencies
         if: steps.check.outputs.updated == 'true'
-        run: pip install -r requirements.txt
+        run: |
+          pip install -r requirements.txt
+          # fsb5 经 ctypes 加载 vorbis 原生库做 ogg 重编码
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libvorbis0a libvorbisenc2 libogg0
 
       - name: Resolve APK download URL
         if: steps.check.outputs.updated == 'true'
@@ -93,7 +100,7 @@ jobs:
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          for branch in avatar illustration illustrationLowRes illustrationBlur; do
+          for branch in avatar chart illustration illustrationLowRes illustrationBlur music; do
             if git ls-remote --exit-code --heads origin "$branch" > /dev/null 2>&1; then
               git fetch origin "$branch"
               git worktree add -B "$branch" "out_$branch" "origin/$branch"
@@ -110,4 +117,7 @@ jobs:
               git -C "out_$branch" commit -qm "${{ steps.check.outputs.version }}"
               git -C "out_$branch" push origin "$branch"
             fi
+            # 释放磁盘: runner 仅约 14GB, 全量产物超过 4GB
+            git worktree remove --force "out_$branch"
+            rm -rf "$branch"
           done
