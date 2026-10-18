@@ -1,0 +1,87 @@
+name: Update game data
+
+on:
+  schedule:
+    # GitHub Actions 使用 UTC: 北京时间 09:13 / 17:47
+    - cron: '13 1 * * *'
+    - cron: '47 9 * * *'
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 跳过版本检查，强制重新解包推送
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: update-info-branch
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v4
+
+      - name: Checkout info branch
+        run: |
+          git fetch origin info
+          git worktree add -B info out origin/info
+
+      - name: Check for new version
+        id: check
+        env:
+          FORCE: ${{ inputs.force || false }}
+        run: python ci/check_update.py out/version.txt
+
+      - name: Set up Python
+        if: steps.check.outputs.updated == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        if: steps.check.outputs.updated == 'true'
+        run: pip install -r requirements.txt
+
+      - name: Resolve APK download URL
+        if: steps.check.outputs.updated == 'true'
+        id: resolve
+        run: python ci/resolve_apk_url.py
+
+      - name: Download APK
+        if: steps.check.outputs.updated == 'true'
+        run: curl -fL -C - --retry 5 --retry-delay 10 --retry-all-errors -o phigros.apk "${{ steps.resolve.outputs.url }}"
+
+      - name: Verify APK checksum
+        if: steps.check.outputs.updated == 'true'
+        run: echo "${{ steps.resolve.outputs.md5 }}  phigros.apk" | md5sum -c -
+
+      - name: Extract game information
+        if: steps.check.outputs.updated == 'true'
+        run: |
+          python gameInformation.py phigros.apk
+          rm -f phigros.apk
+
+      - name: Publish to info branch
+        if: steps.check.outputs.updated == 'true'
+        run: |
+          cd out
+          git rm -rq --ignore-unmatch .
+          cp ../info/* .
+          echo -n "${{ steps.check.outputs.version }}" > version.txt
+          git add -A
+          if git diff --cached --quiet; then
+            echo "内容无变化，跳过提交"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "${{ steps.check.outputs.version }}"
+          git push origin info
