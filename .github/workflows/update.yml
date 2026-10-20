@@ -4,10 +4,14 @@ on:
   schedule:
     # GitHub Actions 使用 UTC: 北京时间 09:05 / 13:05 / 17:05 / 22:05
     # (鸽游常见发版时段 + 5 分钟余量避开 Actions 整点繁忙期)
-    - cron: '5 1 * * *'
-    - cron: '5 5 * * *'
     - cron: '5 9 * * *'
+      timezone: "Asia/Shanghai"
     - cron: '5 14 * * *'
+      timezone: "Asia/Shanghai"
+    - cron: '5 17 * * *'
+      timezone: "Asia/Shanghai"
+    - cron: '5 22 * * *'
+      timezone: "Asia/Shanghai"
   workflow_dispatch:
     inputs:
       force:
