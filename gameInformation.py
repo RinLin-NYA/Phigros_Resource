@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import sys
 from UnityPy import Environment
 import zipfile
@@ -75,12 +76,26 @@ def export_collection(database, control, logger):
     logger.info("collection.json: %d folders, %d files",
                 len(folders), sum(len(folder["files"]) for folder in folders))
 
+def export_story(story, logger):
+    data = {}
+    for control, instances in story.items():
+        data[control] = [
+            [{"lines": [multi_language(line) for line in page["lines"]]}
+             for page in instance["pages"]]
+            for instance in instances
+        ]
+    with open("info/story.json", "w", encoding="utf8") as f:
+        json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
+    logger.info("story.json: %s",
+                {control: len(instances) for control, instances in story.items()})
+
 def run(path, logger):
     Tips = None
     GameInformation = None
     Collections = None
     CollectionDatabase = None
     SaturnOSControl = None
+    story = {"Chapter9StoryTextView": [], "C9StoryControl": []}
     with open("typetree.json") as f:
         typetree = json.load(f)
     env = Environment()
@@ -89,10 +104,31 @@ def run(path, logger):
             with apk.open("assets/bin/Data/data.unity3d") as f:
                 env.load_file(BytesIO(f.read()), name="assets/bin/Data/data.unity3d")
         else:
-            with apk.open("assets/bin/Data/globalgamemanagers.assets") as f:
-                env.load_file(BytesIO(f.read()), name="assets/bin/Data/globalgamemanagers.assets")
-            with apk.open("assets/bin/Data/level0") as f:
-                env.load_file(BytesIO(f.read()))
+            # 散装布局 (无 data.unity3d): 加载全部 level* 与 sharedassets*,
+            # split 分片按序号合并为完整 SerializedFile
+            names = apk.NameToInfo
+            plain = []
+            splits = {}  # sharedassetsN.assets -> [(index, entry_name)]
+            for name in names:
+                if not name.startswith("assets/bin/Data/"):
+                    continue
+                base = name[len("assets/bin/Data/"):]
+                if base == "globalgamemanagers.assets" or re.fullmatch(r"level\d+", base):
+                    plain.append(name)
+                elif re.fullmatch(r"sharedassets\d+\.assets", base):
+                    plain.append(name)
+                else:
+                    m = re.fullmatch(r"(sharedassets\d+)\.assets\.split(\d+)", base)
+                    if m:
+                        splits.setdefault(m.group(1), []).append((int(m.group(2)), name))
+            for name in plain:
+                with apk.open(name) as f:
+                    env.load_file(BytesIO(f.read()), name=name)
+            for base in sorted(splits):
+                data = b"".join(
+                    apk.read(name) for _, name in sorted(splits[base])
+                )
+                env.load_file(BytesIO(data), name=f"assets/bin/Data/{base}.assets")
     for obj in env.objects:
         if obj.type.name != "MonoBehaviour":
             continue
@@ -115,6 +151,12 @@ def run(path, logger):
             CollectionDatabase = obj.read_typetree(typetree["CollectionDatabase"])
         elif script_name == "SaturnOSControl":
             SaturnOSControl = obj.read_typetree(typetree["SaturnOSControl"])
+        elif script_name in story:
+            # 4.0.1 的 APK 并未附带剧情场景实例（热更新内容），此处为机会式提取
+            try:
+                story[script_name].append(obj.read_typetree(typetree[script_name]))
+            except Exception:
+                logger.warning("读取 %s 实例失败，跳过", script_name)
 
     rows = []
     for key, songs in GameInformation["song"].items():
@@ -204,6 +246,12 @@ def run(path, logger):
         export_collection(CollectionDatabase, SaturnOSControl, logger)
     else:
         logger.warning("未找到 CollectionDatabase/SaturnOSControl，跳过 collection.json 导出")
+
+    # 第九章剧情文本（Chapter9StoryTextView / C9StoryControl 实例可能不存在）
+    if any(story.values()):
+        export_story(story, logger)
+    else:
+        logger.warning("未找到剧情文本控件，跳过 story.json 导出")
 
 
 if __name__ == "__main__":
