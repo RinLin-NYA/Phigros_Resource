@@ -1,3 +1,4 @@
+import csv
 import json
 import os
 import re
@@ -48,6 +49,9 @@ def collection_file_item(item):
         "properties": multi_language(item["properties"]),
     }
 
+COLLECTION_CSV_HEADER = ("folder", "folder_sub", "cover", "key", "sub_index",
+                         "name", "date", "supervisor", "category", "content", "properties")
+
 def export_collection(database, control, logger):
     items = database["items"]
     folders = []
@@ -71,10 +75,30 @@ def export_collection(database, control, logger):
             "cover": folder["cover"],
             "files": [collection_file_item(item) for item in files],
         })
-    with open("info/collection.json", "w", encoding="utf8") as f:
-        json.dump(folders, f, ensure_ascii=False, separators=(",", ":"))
-    logger.info("collection.json: %d folders, %d files",
-                len(folders), sum(len(folder["files"]) for folder in folders))
+    # 按语言拆分, 每语言一个 csv; 正文内换行转义为字面 \n 以保证一行一条记录
+    total = 0
+    for _, out_key in LANGUAGE_KEYS:
+        with open(f"info/collection_{out_key}.csv", "w", encoding="utf8", newline="") as f:
+            writer = csv.writer(f, lineterminator="\n")
+            writer.writerow(COLLECTION_CSV_HEADER)
+            for folder in folders:
+                for item in folder["files"]:
+                    writer.writerow([
+                        folder["title"][out_key],
+                        folder["sub_title"][out_key],
+                        folder["cover"],
+                        item["key"],
+                        item["sub_index"],
+                        item["name"][out_key],
+                        item["date"],
+                        item["supervisor"][out_key],
+                        item["category"],
+                        item["content"][out_key].replace("\n", "\\n"),
+                        item["properties"][out_key].replace("\n", "\\n"),
+                    ])
+                    total += 1
+    logger.info("collection_<lang>.csv: %d folders, %d files x %d languages",
+                len(folders), total // len(LANGUAGE_KEYS), len(LANGUAGE_KEYS))
 
 def export_story(story, logger):
     data = {}
@@ -227,25 +251,21 @@ def run(path, logger):
                 avatar.write("\n")
                 tmp.write("%s\t%s\n" % (item.name, item.addressableKey[7:]))
 
-    # tips 数组顺序固定为 chinese/chineseTraditional/english/japanese/korean
-    tips_multi = {}
+    # tips 数组顺序固定为 chinese/chineseTraditional/english/japanese/korean,
+    # 按语言各输出一个 txt, 每行一条 (与上游 tips.txt 相同的纯文本格式)
     for i, (_, out_key) in enumerate(LANGUAGE_KEYS):
-        if i < len(Tips.tips):
-            tips_multi[out_key] = list(Tips.tips[i].tips)
-
-    with open("info/tips.json", "w", encoding="utf8") as f:
-        json.dump(tips_multi, f, ensure_ascii=False, separators=(",", ":"))
-
-    with open("info/tips.txt", "w", encoding="utf8") as f:
-        for tip in tips_multi.get("zh_cn", []):
-            f.write(tip)
-            f.write("\n")
+        if i >= len(Tips.tips):
+            break
+        with open(f"info/tips_{out_key}.txt", "w", encoding="utf8") as f:
+            for tip in Tips.tips[i].tips:
+                f.write(tip)
+                f.write("\n")
 
     # 收藏品完整内容（4.0 / versionCode 155 起才有 CollectionDatabase）
     if CollectionDatabase is not None and SaturnOSControl is not None:
         export_collection(CollectionDatabase, SaturnOSControl, logger)
     else:
-        logger.warning("未找到 CollectionDatabase/SaturnOSControl，跳过 collection.json 导出")
+        logger.warning("未找到 CollectionDatabase/SaturnOSControl，跳过收藏品导出")
 
     # 第九章剧情文本（Chapter9StoryTextView / C9StoryControl 实例可能不存在）
     if any(story.values()):

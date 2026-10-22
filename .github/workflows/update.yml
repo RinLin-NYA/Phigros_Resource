@@ -81,7 +81,9 @@ jobs:
           python gameInformation.py phigros.apk
           # 关键产物缺失 = 解包不完整（如补丁包结构变化），直接失败终止，
           # 避免把残缺数据推上分支（4.0.1.1 曾因此误删 collection.json）
-          for f in info/info.csv info/collection.json info/collection_index.json info/tips.json; do
+          for f in info/info.csv info/collection_index.json \
+                   info/collection_zh_cn.csv info/collection_zh_tw.csv info/collection_en.csv info/collection_ja.csv info/collection_ko.csv \
+                   info/tips_zh_cn.txt info/tips_zh_tw.txt info/tips_en.txt info/tips_ja.txt info/tips_ko.txt; do
             if [ ! -s "$f" ]; then
               echo "::error::$f 缺失或为空，解包不完整，终止发布"
               exit 1
