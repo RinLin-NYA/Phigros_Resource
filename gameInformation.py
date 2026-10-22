@@ -238,11 +238,12 @@ def run(path, logger):
         for key, value in D.items():
             f.write("%s\t%s\t%s\n" % (key, value[0]["zh_cn"], value[1]))
 
-    with open("info/collection_index.json", "w", encoding="utf8") as f:
-        json.dump(
-            [{"key": key, "title": value[0], "sub_index": value[1]}
-             for key, value in D.items()],
-            f, ensure_ascii=False, separators=(",", ":"))
+    # 单表索引, 多语言 title 按原 json 结构平铺为 title_<lang> 列
+    with open("info/collection_index.csv", "w", encoding="utf8", newline="") as f:
+        writer = csv.writer(f, lineterminator="\n")
+        writer.writerow(["key", *[f"title_{out_key}" for _, out_key in LANGUAGE_KEYS], "sub_index"])
+        for key, value in D.items():
+            writer.writerow([key, *[value[0][out_key] for _, out_key in LANGUAGE_KEYS], value[1]])
 
     with open("info/avatar.txt", "w", encoding="utf8") as avatar:
         with open("info/tmp.tsv", "w", encoding="utf8") as tmp:
