@@ -24,7 +24,9 @@ def multi_language(value, unescape_newline=False):
     for key, out_key in LANGUAGE_KEYS:
         text = value[key]
         if unescape_newline:
-            text = text.replace("\\n", "\n")
+            # 游戏把单个换行写成字面 \n + 真 LF 的组合, 必须先整体归一,
+            # 否则只替换字面 \n 会让每个换行翻倍
+            text = text.replace("\\n\n", "\n").replace("\\n", "\n")
         result[out_key] = text
     return result
 
